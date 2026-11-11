@@ -41,6 +41,17 @@ export const EnvSchema = z
 
     DATABASE_URL: postgresUrl,
     WEB_ORIGIN: z.url().default('http://localhost:5173'),
+    /** Express trust proxy setting (e.g. true, 1, or hop count) when running behind a reverse proxy. */
+    TRUST_PROXY: z.preprocess((v) => {
+      if (typeof v === 'string') {
+        const lower = v.trim().toLowerCase();
+        if (lower === 'true' || lower === '1') return true;
+        if (lower === 'false' || lower === '0') return false;
+        const num = Number(lower);
+        if (!Number.isNaN(num)) return num;
+      }
+      return v;
+    }, z.union([z.boolean(), z.number(), z.string()]).default(false)),
 
     /** Hard limit on a session's lifetime, regardless of activity. */
     SESSION_ABSOLUTE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
@@ -135,6 +146,8 @@ export interface AppConfig {
   logLevel: Env['LOG_LEVEL'];
   databaseUrl: string;
   webOrigin: string;
+  /** Express trust proxy setting when behind a reverse proxy. */
+  trustProxy: boolean | number | string;
   /** Origins allowed to make state-changing browser requests (CSRF origin check). */
   allowedOrigins: string[];
   session: {
@@ -209,6 +222,7 @@ export function parseConfig(raw: Record<string, string | undefined>): AppConfig 
     logLevel: env.LOG_LEVEL,
     databaseUrl: env.DATABASE_URL,
     webOrigin: env.WEB_ORIGIN,
+    trustProxy: env.TRUST_PROXY,
     allowedOrigins: allowedOriginsFor(env.WEB_ORIGIN, env.NODE_ENV),
     session: {
       absoluteTtlMs: env.SESSION_ABSOLUTE_TTL_HOURS * 3_600_000,

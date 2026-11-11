@@ -73,8 +73,11 @@ export function createApp(deps: AppDeps): Express {
   const probe = deps.probe ?? databaseProbe(db);
 
   app.disable('x-powered-by');
-  // Not behind a proxy in development. Revisit (and restrict) when deploying behind one.
-  app.set('trust proxy', false);
+  if (config.trustProxy) {
+    app.set('trust proxy', config.trustProxy);
+  } else {
+    app.set('trust proxy', false);
+  }
 
   app.use(requestId);
   app.use(

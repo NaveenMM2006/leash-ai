@@ -40,7 +40,12 @@ export function useSession() {
     queryKey: SESSION_KEY,
     queryFn: fetchSession,
     staleTime: 60_000,
-    retry: false,
+    retry: (count, error) => {
+      // Don't retry on 4xx client errors (e.g. 401 unauthenticated is expected)
+      if (error instanceof ApiRequestError && error.status < 500) return false;
+      return count < 3;
+    },
+    retryDelay: (attempt) => Math.min(attempt * 300, 1500),
   });
 }
 

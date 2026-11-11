@@ -20,7 +20,7 @@ const queryClient: QueryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: (count, error) =>
-        !(error instanceof ApiRequestError && error.status < 500) && count < 1,
+        !(error instanceof ApiRequestError && error.status < 500) && count < 2,
       refetchOnWindowFocus: false,
     },
   },
