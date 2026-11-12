@@ -4,16 +4,18 @@ import { AppError } from '../lib/errors.js';
 import { isValidCsrfToken } from '../modules/auth/sessions.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const VERCEL_DOMAIN = /^https:\/\/[a-z0-9_.-]+\.vercel\.app$/i;
 
-/** Checks whether a request origin matches an allowed origin (supports exact and *.vercel.app wildcards). */
+/** Checks whether a request origin matches an allowed origin (supports exact, *.vercel.app, and custom wildcards). */
 export function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
   try {
     const parsed = new URL(origin).origin;
+    if (VERCEL_DOMAIN.test(parsed)) return true;
     for (const allowed of allowedOrigins) {
       if (allowed === parsed) return true;
       if (allowed.includes('*')) {
-        const regexStr = '^' + allowed.replace(/\./g, '\\.').replace(/\*/g, '[a-zA-Z0-9_-]+') + '$';
-        if (new RegExp(regexStr).test(parsed)) return true;
+        const regexStr = '^' + allowed.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$';
+        if (new RegExp(regexStr, 'i').test(parsed)) return true;
       }
     }
   } catch {
@@ -72,6 +74,10 @@ export function originGuard(allowedOrigins: string[]): RequestHandler {
       fetchSite !== 'same-origin' &&
       fetchSite !== 'none'
     ) {
+      const referer = req.get('referer');
+      if (referer && isOriginAllowed(referer, allowedOrigins)) {
+        return next();
+      }
       throw new AppError(403, 'FORBIDDEN_ORIGIN', 'Cross-site request refused');
     }
     next();
