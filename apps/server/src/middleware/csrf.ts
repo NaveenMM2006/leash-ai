@@ -5,6 +5,53 @@ import { isValidCsrfToken } from '../modules/auth/sessions.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** Checks whether a request origin matches an allowed origin (supports exact and *.vercel.app wildcards). */
+export function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
+  try {
+    const parsed = new URL(origin).origin;
+    for (const allowed of allowedOrigins) {
+      if (allowed === parsed) return true;
+      if (allowed.includes('*')) {
+        const regexStr = '^' + allowed.replace(/\./g, '\\.').replace(/\*/g, '[a-zA-Z0-9_-]+') + '$';
+        if (new RegExp(regexStr).test(parsed)) return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Handles CORS headers for allowed origins and responds to OPTIONS preflights.
+ * Disallowed origins receive no CORS headers so browsers block unauthorized cross-origin requests.
+ */
+export function corsMiddleware(allowedOrigins: string[]): RequestHandler {
+  return (req, res, next) => {
+    const origin = req.get('origin');
+    if (origin && isOriginAllowed(origin, allowedOrigins)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
+      );
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, x-csrf-token, x-request-id, sec-fetch-site',
+      );
+      res.setHeader('Access-Control-Expose-Headers', 'x-request-id');
+      res.setHeader('Vary', 'Origin');
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  };
+}
+
 /**
  * Layer 1 — origin check for state-changing browser requests. A request that
  * declares a foreign Origin, or is marked cross-site by Sec-Fetch-Site, is
@@ -12,11 +59,10 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * a CSRF vector; they still need the CSRF token on authenticated routes.
  */
 export function originGuard(allowedOrigins: string[]): RequestHandler {
-  const allowed = new Set(allowedOrigins);
   return (req, _res, next) => {
     if (SAFE_METHODS.has(req.method)) return next();
     const origin = req.get('origin');
-    if (origin !== undefined && !allowed.has(origin)) {
+    if (origin !== undefined && !isOriginAllowed(origin, allowedOrigins)) {
       throw new AppError(403, 'FORBIDDEN_ORIGIN', 'Cross-origin request refused');
     }
     const fetchSite = req.get('sec-fetch-site');

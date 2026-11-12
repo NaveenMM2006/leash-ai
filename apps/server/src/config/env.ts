@@ -41,6 +41,10 @@ export const EnvSchema = z
 
     DATABASE_URL: postgresUrl,
     WEB_ORIGIN: z.url().default('http://localhost:5173'),
+    /** Comma-separated list of additional allowed origins (e.g. 'https://my-app.vercel.app,https://*.vercel.app'). */
+    ALLOWED_ORIGINS: optionalString,
+    /** Optional override for session cookie SameSite attribute ('strict', 'lax', 'none'). */
+    COOKIE_SAME_SITE: z.enum(['strict', 'lax', 'none']).optional(),
     /** Express trust proxy setting (e.g. true, 1, or hop count) when running behind a reverse proxy. */
     TRUST_PROXY: z.preprocess((v) => {
       if (typeof v === 'string') {
@@ -157,6 +161,8 @@ export interface AppConfig {
     stepUpWindowMs: number;
     /** Secure cookies (and the __Host- prefix) outside local development. */
     secureCookie: boolean;
+    /** SameSite attribute for the session cookie ('strict', 'lax', 'none'). */
+    sameSite?: 'strict' | 'lax' | 'none';
   };
   paypal: {
     environment: 'sandbox';
@@ -223,12 +229,13 @@ export function parseConfig(raw: Record<string, string | undefined>): AppConfig 
     databaseUrl: env.DATABASE_URL,
     webOrigin: env.WEB_ORIGIN,
     trustProxy: env.TRUST_PROXY,
-    allowedOrigins: allowedOriginsFor(env.WEB_ORIGIN, env.NODE_ENV),
+    allowedOrigins: allowedOriginsFor(env.WEB_ORIGIN, env.NODE_ENV, env.ALLOWED_ORIGINS),
     session: {
       absoluteTtlMs: env.SESSION_ABSOLUTE_TTL_HOURS * 3_600_000,
       idleTimeoutMs: env.SESSION_IDLE_TIMEOUT_MINUTES * 60_000,
       stepUpWindowMs: env.STEP_UP_WINDOW_MINUTES * 60_000,
       secureCookie: env.NODE_ENV === 'production',
+      sameSite: env.COOKIE_SAME_SITE,
     },
     paypal: {
       environment: 'sandbox',
@@ -268,13 +275,38 @@ export function parseConfig(raw: Record<string, string | undefined>): AppConfig 
  * The configured dashboard origin. In development the localhost/127.0.0.1
  * twin is also accepted, since browsers treat them as different origins.
  */
-function allowedOriginsFor(webOrigin: string, nodeEnv: Env['NODE_ENV']): string[] {
-  const origin = new URL(webOrigin).origin;
-  const origins = new Set([origin]);
+function allowedOriginsFor(
+  webOrigin: string,
+  nodeEnv: Env['NODE_ENV'],
+  extraOrigins?: string,
+): string[] {
+  const origins = new Set<string>();
+  const candidates = [webOrigin, ...(extraOrigins ? extraOrigins.split(',') : [])];
+
+  for (const item of candidates) {
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+    try {
+      if (trimmed.includes('*')) {
+        origins.add(trimmed.replace(/\/+$/, ''));
+      } else {
+        origins.add(new URL(trimmed).origin);
+      }
+    } catch {
+      origins.add(trimmed.replace(/\/+$/, ''));
+    }
+  }
+
   if (nodeEnv !== 'production') {
-    const url = new URL(origin);
-    if (url.hostname === 'localhost') origins.add(origin.replace('//localhost', '//127.0.0.1'));
-    if (url.hostname === '127.0.0.1') origins.add(origin.replace('//127.0.0.1', '//localhost'));
+    for (const origin of [...origins]) {
+      try {
+        const url = new URL(origin);
+        if (url.hostname === 'localhost') origins.add(origin.replace('//localhost', '//127.0.0.1'));
+        if (url.hostname === '127.0.0.1') origins.add(origin.replace('//127.0.0.1', '//localhost'));
+      } catch {
+        // Ignore wildcard parse errors
+      }
+    }
   }
   return [...origins];
 }

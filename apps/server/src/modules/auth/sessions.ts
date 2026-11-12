@@ -7,15 +7,17 @@ import { hmacBase64Url, randomToken, safeEqual, sha256Hex } from '../../lib/cryp
 const TOUCH_INTERVAL_MS = 60_000;
 
 export function sessionCookieName(config: AppConfig): string {
-  // __Host- forces Secure, Path=/ and no Domain — only usable over HTTPS.
+  // __Host- forces Secure, Path=/ and no Domain — only usable over HTTPS and same-site.
+  if (config.session.sameSite === 'none') return 'leash_session';
   return config.session.secureCookie ? '__Host-leash_session' : 'leash_session';
 }
 
 export function sessionCookieOptions(config: AppConfig) {
+  const sameSite = config.session.sameSite ?? ('strict' as const);
   return {
     httpOnly: true,
-    secure: config.session.secureCookie,
-    sameSite: 'strict' as const,
+    secure: config.session.secureCookie || sameSite === 'none',
+    sameSite,
     path: '/',
     maxAge: config.session.absoluteTtlMs,
   };

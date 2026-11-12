@@ -5,7 +5,7 @@ import type { AppConfig } from './config/env.js';
 import type { AppContext } from './context.js';
 import { databaseProbe, type Database, type DatabaseProbe } from './db.js';
 import type { Logger } from './lib/logger.js';
-import { originGuard, requireCsrf, requireJsonBody } from './middleware/csrf.js';
+import { corsMiddleware, originGuard, requireCsrf, requireJsonBody } from './middleware/csrf.js';
 import { createErrorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import {
   createRateLimiters,
@@ -98,12 +98,12 @@ export function createApp(deps: AppDeps): Express {
         useDefaults: false,
         directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
       },
-      crossOriginResourcePolicy: { policy: 'same-origin' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
 
-  // No CORS middleware on purpose: the dashboard is served from the same origin
-  // (Vite proxies /api in development), so cross-origin requests are refused by default.
+  // Enable CORS headers and handle OPTIONS preflights for configured dashboard origins.
+  app.use(corsMiddleware(config.allowedOrigins));
   // PayPal webhooks: the raw body is needed byte for byte for signature verification,
   // so this route is mounted *before* the JSON parsers. No session, CSRF or origin
   // guard (PayPal is the caller); PayPal's own verification is the authentication.
